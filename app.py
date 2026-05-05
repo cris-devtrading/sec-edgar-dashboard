@@ -265,8 +265,12 @@ with col2:
         df_export = st.session_state.df.copy()
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            # Sheet 1: Raw numbers for analysis
-            df_export.to_excel(writer, index=False, sheet_name="Raw Data")
+            # Sheet 1: Raw numbers — force numeric so Excel recognizes them
+            raw = df_export.copy()
+            for col in ["Revenue (USD)", "Prior Revenue (USD)", "Public Float (USD)", "Public Float (Shares)", "YOY Revenue Growth (%)"]:
+                if col in raw.columns:
+                    raw[col] = pd.to_numeric(raw[col], errors="coerce")
+            raw.to_excel(writer, index=False, sheet_name="Raw Data")
             # Sheet 2: Display formatted
             disp = df_export.copy()
             disp["Revenue (Display)"] = disp["Revenue (USD)"].apply(format_large_number)
