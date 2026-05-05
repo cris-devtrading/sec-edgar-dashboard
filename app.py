@@ -287,6 +287,18 @@ with col2:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
+        # CSV raw download — pure numbers, no formatting
+        csv_raw = df_export.copy()
+        for col in ["Revenue (USD)", "Prior Revenue (USD)", "Public Float (USD)", "Public Float (Shares)", "YOY Revenue Growth (%)"]:
+            if col in csv_raw.columns:
+                csv_raw[col] = pd.to_numeric(csv_raw[col], errors="coerce")
+        st.download_button(
+            label="📥 Download CSV (Raw Numbers)",
+            data=csv_raw.to_csv(index=False).encode("utf-8"),
+            file_name=f"sec_edgar_raw_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
 with col3:
     if "last_updated" in st.session_state:
