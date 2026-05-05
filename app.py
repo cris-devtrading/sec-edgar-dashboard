@@ -164,19 +164,32 @@ def get_filing_metadata(cik: str):
         exchanges = data.get("exchanges", [])
         result["exchanges"] = ", ".join(exchanges) if exchanges else "N/A"
 
-        # 404a/404b: Large Accelerated and Accelerated Filers must file BOTH 404(a) and 404(b)
-        # Non-Accelerated and Smaller Reporting Companies are exempt from 404(b)
+        # ── Foreign Private Issuer detection ─────────────────────────────────
+        # Companies filing 20-F, 40-F, or 10-F are foreign filers — not subject to SOX 404(b)
+        foreign_forms = {"20-F", "40-F", "10-F", "20-F/A", "40-F/A"}
+        is_foreign = any(f in foreign_forms for f in forms)
+        result["is_foreign_filer"] = is_foreign
+
+        # ── EGC flag ──────────────────────────────────────────────────────────
+        # Emerging Growth Company status — delays 404(b) but doesn't override filer status
         cat = result["filer_category"].lower()
-        if "large accelerated" in cat:
+        result["is_egc"] = "emerging growth" in cat
+
+        # ── Smaller Reporting Company flag ────────────────────────────────────
+        result["is_src"] = "smaller reporting" in cat
+
+        # ── SOX 404(b) determination ──────────────────────────────────────────
+        # Rule: base STRICTLY on filer status (accelerated vs non-accelerated)
+        # SRC is NOT a proxy for exemption — a SRC can still be an accelerated filer
+        # Foreign filers (20-F, 40-F, 10-F) are not subject to SOX 404(b)
+        if is_foreign:
+            result["filing_status"] = "Not Applicable (Foreign Filer)"
+        elif "large accelerated" in cat:
             result["filing_status"] = "404(b) Required (Large Accelerated Filer)"
         elif "accelerated" in cat and "non-accelerated" not in cat:
             result["filing_status"] = "404(b) Required (Accelerated Filer)"
         elif "non-accelerated" in cat:
             result["filing_status"] = "404(b) Exempt (Non-Accelerated Filer)"
-        elif "smaller reporting" in cat:
-            result["filing_status"] = "404(b) Exempt (Smaller Reporting Company)"
-        elif "emerging growth" in cat:
-            result["filing_status"] = "404(b) Exempt (Emerging Growth Company)"
         else:
             result["filing_status"] = "N/A"
 
@@ -217,8 +230,11 @@ def process_company(company):
         "Ticker": ticker,
         "Company": name,
         "CIK": cik,
-        "Filing Status (404a/404b)": meta.get("filing_status", "N/A"),
+        "SOX 404(b) Status": meta.get("filing_status", "N/A"),
         "Filer Category": meta.get("filer_category", "N/A"),
+        "Is EGC": "Yes" if meta.get("is_egc") else "No",
+        "Is SRC": "Yes" if meta.get("is_src") else "No",
+        "Foreign Filer": "Yes" if meta.get("is_foreign_filer") else "No",
         "Exchange": meta.get("exchanges", "N/A"),
         "IPO Date": meta.get("ipo_date", "N/A"),
         "SIC Description": meta.get("sic_description", "N/A"),
@@ -487,7 +503,7 @@ if "df" in st.session_state and st.session_state.df is not None:
 
     # Display columns
     display_cols = [
-        "Ticker", "Company", "Filing Status (404a/404b)", "Filer Category",
+        "Ticker", "Company", "SOX 404(b) Status", "Filer Category", "Is EGC", "Is SRC", "Foreign Filer",
         "Exchange", "IPO Date", "Revenue (Display)", "Prior Revenue (Display)",
         "YOY Revenue Growth (%)", "Public Float USD (Display)", "Public Float Shares (Display)", "Revenue Period", "SIC Description"
     ]
