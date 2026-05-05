@@ -164,20 +164,19 @@ def get_filing_metadata(cik: str):
         exchanges = data.get("exchanges", [])
         result["exchanges"] = ", ".join(exchanges) if exchanges else "N/A"
 
-        # 404a/404b: derived from filer category (XBRL dei:EntityFilerCategory)
-        # 404b exempts non-accelerated filers and smaller reporting companies
-        # 404a applies to accelerated and large accelerated filers
+        # 404a/404b: Large Accelerated and Accelerated Filers must file BOTH 404(a) and 404(b)
+        # Non-Accelerated and Smaller Reporting Companies are exempt from 404(b)
         cat = result["filer_category"].lower()
-        if "non-accelerated" in cat:
-            result["filing_status"] = "404b Exempt (Non-Accelerated Filer)"
+        if "large accelerated" in cat:
+            result["filing_status"] = "404(b) Required (Large Accelerated Filer)"
+        elif "accelerated" in cat and "non-accelerated" not in cat:
+            result["filing_status"] = "404(b) Required (Accelerated Filer)"
+        elif "non-accelerated" in cat:
+            result["filing_status"] = "404(b) Exempt (Non-Accelerated Filer)"
         elif "smaller reporting" in cat:
-            result["filing_status"] = "404b Exempt (Smaller Reporting Company)"
-        elif "large accelerated" in cat:
-            result["filing_status"] = "404a (Large Accelerated Filer)"
-        elif "accelerated" in cat:
-            result["filing_status"] = "404a (Accelerated Filer)"
+            result["filing_status"] = "404(b) Exempt (Smaller Reporting Company)"
         elif "emerging growth" in cat:
-            result["filing_status"] = "404b Exempt (Emerging Growth Company)"
+            result["filing_status"] = "404(b) Exempt (Emerging Growth Company)"
         else:
             result["filing_status"] = "N/A"
 
