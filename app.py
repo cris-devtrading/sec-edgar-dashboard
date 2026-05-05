@@ -161,18 +161,23 @@ def get_filing_metadata(cik: str):
             ten_k_dates = [d for d, f in zip(filing_dates, forms) if f in ("10-K", "10-K/A")]
             result["ipo_date"] = min(ten_k_dates) if ten_k_dates else "N/A"
 
-        # 404a vs 404b: check if company has filed 15-12G (exit) or look at exchange
         exchanges = data.get("exchanges", [])
         result["exchanges"] = ", ".join(exchanges) if exchanges else "N/A"
 
-        # Determine 404a/404b from ein or accelerated filer category
+        # 404a/404b: derived from filer category (XBRL dei:EntityFilerCategory)
+        # 404b exempts non-accelerated filers and smaller reporting companies
+        # 404a applies to accelerated and large accelerated filers
         cat = result["filer_category"].lower()
-        if "non-accelerated" in cat or "smaller reporting" in cat:
-            result["filing_status"] = "404b (Non-Accelerated / Smaller Reporting)"
+        if "non-accelerated" in cat:
+            result["filing_status"] = "404b Exempt (Non-Accelerated Filer)"
+        elif "smaller reporting" in cat:
+            result["filing_status"] = "404b Exempt (Smaller Reporting Company)"
         elif "large accelerated" in cat:
             result["filing_status"] = "404a (Large Accelerated Filer)"
         elif "accelerated" in cat:
             result["filing_status"] = "404a (Accelerated Filer)"
+        elif "emerging growth" in cat:
+            result["filing_status"] = "404b Exempt (Emerging Growth Company)"
         else:
             result["filing_status"] = "N/A"
 
@@ -222,14 +227,14 @@ def process_company(company):
         "Revenue Period": None,
         "Revenue Prior Year": None,
         "YOY Revenue Growth (%)": None,
-        "Public Float": None,
+        "Public Float (USD)": None,
+        "Public Float (Shares)": None,
         "Public Float Period": None,
         "Public Float (Approx)": None,
     }
 
     if facts:
         # ── Revenue ──────────────────────────────────────────────────────────
-        # Try multiple XBRL revenue concepts in order of preference
         revenue_concepts = [
             ("us-gaap", "RevenueFromContractWithCustomerExcludingAssessedTax"),
             ("us-gaap", "Revenues"),
@@ -248,7 +253,6 @@ def process_company(company):
             row["Revenue (Latest)"] = rev_val
             row["Revenue Period"] = rev_period
 
-            # Try to get prior year revenue for YOY
             try:
                 for tax, concept in revenue_concepts:
                     try:
@@ -270,18 +274,25 @@ def process_company(company):
                 pass
 
         # ── Public Float ─────────────────────────────────────────────────────
+        # Primary: EntityPublicFloat in USD (as reported in 10-K cover page)
         float_result = get_latest_value(facts, "dei", "EntityPublicFloat")
         if float_result:
-            row["Public Float"] = float_result[0]
+            row["Public Float (USD)"] = float_result[0]
             row["Public Float Period"] = float_result[1]
-            row["Public Float (Approx)"] = False  # Exact from EDGAR
-        else:
-            # Fallback: shares outstanding × price (approximation)
-            shares_result = get_latest_value(facts, "dei", "EntityCommonStockSharesOutstanding")
-            if shares_result:
-                # We can't get price here without another API call; mark as needing calc
-                row["Public Float"] = None
-                row["Public Float (Approx)"] = True  # Flag: needs market price
+            row["Public Float (Approx)"] = False
+
+        # Always try to get shares float separately
+        try:
+            shares_entries = facts["facts"]["dei"]["EntityCommonStockSharesOutstanding"]["units"]["shares"]
+            annual_shares = [e for e in shares_entries if e.get("form") in ("10-K", "10-K/A") and "end" in e]
+            if annual_shares:
+                annual_shares.sort(key=lambda x: x["end"], reverse=True)
+                row["Public Float (Shares)"] = annual_shares[0]["val"]
+        except Exception:
+            pass
+
+        if not float_result:
+            row["Public Float (Approx)"] = True
 
     return row
 
@@ -386,10 +397,14 @@ if pull_button:
     # Format display columns
     df["Revenue (Display)"] = df["Revenue (Latest)"].apply(format_large_number)
     df["Prior Revenue (Display)"] = df["Revenue Prior Year"].apply(format_large_number)
-    df["Public Float (Display)"] = df.apply(
-        lambda r: (format_large_number(r["Public Float"]) + (" ⚠️ approx" if r.get("Public Float (Approx)") else ""))
-        if r["Public Float"] is not None else "N/A",
+    df["Public Float USD (Display)"] = df.apply(
+        lambda r: (format_large_number(r["Public Float (USD)"]) + (" ⚠️ approx" if r.get("Public Float (Approx)") else ""))
+        if r["Public Float (USD)"] is not None else "N/A",
         axis=1
+    )
+    df["Public Float Shares (Display)"] = df["Public Float (Shares)"].apply(
+        lambda x: f"{x/1e9:.2f}B shares" if x is not None and x >= 1e9
+        else (f"{x/1e6:.2f}M shares" if x is not None and x >= 1e6 else "N/A")
     )
 
     st.session_state.df = df
@@ -418,7 +433,7 @@ if "df" in st.session_state and st.session_state.df is not None:
             <div class='metric-value'>{has_revenue:,}</div>
         </div>""", unsafe_allow_html=True)
     with col3:
-        has_float = df["Public Float"].notna().sum()
+        has_float = df["Public Float (USD)"].notna().sum()
         st.markdown(f"""<div class='metric-card'>
             <div class='metric-label'>With Public Float</div>
             <div class='metric-value'>{has_float:,}</div>
@@ -475,7 +490,7 @@ if "df" in st.session_state and st.session_state.df is not None:
     display_cols = [
         "Ticker", "Company", "Filing Status (404a/404b)", "Filer Category",
         "Exchange", "IPO Date", "Revenue (Display)", "Prior Revenue (Display)",
-        "YOY Revenue Growth (%)", "Public Float (Display)", "Revenue Period", "SIC Description"
+        "YOY Revenue Growth (%)", "Public Float USD (Display)", "Public Float Shares (Display)", "Revenue Period", "SIC Description"
     ]
 
     st.markdown(f"**Showing {len(filtered):,} companies**")
