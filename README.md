@@ -121,9 +121,7 @@ Specializing in automated trading systems, broker API integrations, options anal
 📧 Open for freelance projects — [Upwork](https://www.upwork.com/freelancers/cristianchaves) | [Fiverr](https://www.fiverr.com/cristianchaves)
 📧 Contacto: quantedgelatam@gmail.com
 🌐 GitHub: github.com/cris-devtrading
-
----
-
+----
 ## 📄 License
 
 MIT — free to use, modify, and distribute with attribution.
